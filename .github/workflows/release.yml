@@ -1,5 +1,5 @@
- s
- name: Auto Build, Tag and Release
+ 
+name: Auto Build, Tag and Release
 
 on:
   push:
