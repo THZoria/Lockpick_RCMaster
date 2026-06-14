@@ -145,7 +145,6 @@ bool save_process(save_ctx_t *ctx) {
         }
     }
 
-    /* Si le hash était faux mais qu'on est passé grâce au CMAC, on lève le drapeau */
     if (ctx->header_hash_validity == VALIDITY_INVALID) {
         g_cmac_bypassed = true;
     }
