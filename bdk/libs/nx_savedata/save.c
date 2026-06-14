@@ -45,6 +45,9 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 #include <stdlib.h>
 #include <string.h>
 
+/* --- AJOUT DU DRAPEAU GLOBAL --- */
+bool g_cmac_bypassed = false;
+
 static void save_init_journal_ivfc_storage(save_ctx_t *ctx, hierarchical_integrity_verification_storage_ctx_t *out_ivfc, int integrity_check_level) {
     const uint32_t ivfc_levels = 5;
     ivfc_save_hdr_t *ivfc = &ctx->header.data_ivfc_header;
@@ -130,17 +133,23 @@ bool save_process(save_ctx_t *ctx) {
         return false;
     }
 
-    if (!save_process_header(ctx) || (ctx->header_hash_validity == VALIDITY_INVALID)) {
+    /* Le bypass est ici : on valide avec le CMAC au lieu du Hash */
+    if (!save_process_header(ctx) || (ctx->header_cmac_validity == VALIDITY_INVALID)) {
         /* Try to parse Header B. */
         if (substorage_read(&ctx->base_storage, &ctx->header, sizeof(ctx->header), sizeof(ctx->header)) != sizeof(ctx->header)) {
             EPRINTF("Failed to read save header B!\n");
             return false;
         }
 
-        if (!save_process_header(ctx) || (ctx->header_hash_validity == VALIDITY_INVALID)) {
+        if (!save_process_header(ctx) || (ctx->header_cmac_validity == VALIDITY_INVALID)) {
             EPRINTF("Error: Save header is invalid!");
             return false;
         }
+    }
+
+    /* Si le hash était faux mais qu'on est passé grâce au CMAC, on lève le drapeau */
+    if (ctx->header_hash_validity == VALIDITY_INVALID) {
+        g_cmac_bypassed = true;
     }
 
     if (ctx->header.layout.version > VERSION_DISF_5) {

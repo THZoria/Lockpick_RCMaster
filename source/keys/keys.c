@@ -834,6 +834,10 @@ void dump_keys() {
     }
 
     minerva_change_freq(FREQ_800);
+	extern bool g_cmac_bypassed;
+    if (g_cmac_bypassed) {
+        gfx_printf("\n%kWarning: Save header hash mismatch\n(Rebuilt NAND?). Valid CMAC detected.\nBypass successful.\n", colors[(color_idx++) % 6]);
+    }
     gfx_printf("\n%kPress VOL+ to save a screenshot\n or another button to return to the menu.\n\n", colors[(color_idx++) % 6]);
     u8 btn = btn_wait();
     if (btn == BTN_VOL_UP) {
