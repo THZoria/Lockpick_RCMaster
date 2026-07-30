@@ -21,7 +21,7 @@
 
 #include "../hos/hos.h"
 #include <sec/se_t210.h>
-#include "../storage/nx_emmc.h"
+#include <storage/emmc.h>
 #include <utils/types.h>
 
 // Sha256 hash of the null string.
@@ -159,7 +159,7 @@ static const u8 secure_data_tweaks[1][0x10] __attribute__((aligned(4))) = {
 #define RSA_PUBLIC_EXPONENT 65537
 
 #define KEYBLOB_UNK_DATA_SIZE 0x70
-#define KEYBLOB_UNUSED_SIZE (NX_EMMC_BLOCKSIZE - SE_AES_CMAC_DIGEST_SIZE - SE_AES_IV_SIZE - sizeof(keyblob_t))
+#define KEYBLOB_UNUSED_SIZE (EMMC_BLOCKSIZE - SE_AES_CMAC_DIGEST_SIZE - SE_AES_IV_SIZE - sizeof(keyblob_t))
 
 typedef struct {
     u8 master_kek[SE_KEY_128_SIZE];

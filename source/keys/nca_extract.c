@@ -20,7 +20,7 @@
 #include "tsec_crypto.h"
 #include "../gfx/gfx.h"
 #include "../storage/emummc.h"
-#include "../storage/nx_emmc.h"
+#include <storage/emmc.h>
 #include "../storage/nx_emmc_bis.h"
 #include <libs/fatfs/ff.h>
 #include <mem/heap.h>
@@ -67,8 +67,8 @@ static int _parse_nca_sect0_info(const char *path, const u8 *header_key,
 
     se_aes_key_set(KS_NCA_HDR_CRYPT, header_key,        SE_KEY_128_SIZE);
     se_aes_key_set(KS_NCA_HDR_TWEAK, header_key + 0x10, SE_KEY_128_SIZE);
-    se_aes_xts_crypt(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 1, buf + 0x400, buf + 0x000, 0x200, 1);
-    se_aes_xts_crypt(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 2, buf + 0x600, buf + 0x200, 0x200, 1);
+    se_aes_crypt_xts(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 1, buf + 0x400, buf + 0x000, 0x200, 1);
+    se_aes_crypt_xts(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 2, buf + 0x600, buf + 0x200, 0x200, 1);
     se_aes_key_clear(KS_NCA_HDR_CRYPT);
     se_aes_key_clear(KS_NCA_HDR_TWEAK);
 
@@ -129,7 +129,7 @@ static int _nca_ctr_read(FIL *fp, const NcaSect0Info *s,
     u8 ctr[16];
     _nca_ctr_at_off(ctr, s->ctr_base, aligned_abs);   // keystream now correctly starts at the true block boundary
     se_aes_key_set(KS_AES_CTR, s->section_ctr_key, SE_KEY_128_SIZE);
-    se_aes_crypt_ctr(KS_AES_CTR, tmp, read_size, tmp, read_size, ctr);
+    se_aes_crypt_ctr(KS_AES_CTR, tmp, tmp, read_size, ctr);
 
     if (scratch) {
         memcpy(out, scratch + intra, size);   // discard the leading intra-block bytes
@@ -198,8 +198,8 @@ static int _decrypt_package1_cbc(u8 *pkg1, u32 total_size, const u8 *pk08) {
     u8 *enc = pkg1 + BODY_OFF;
 
     se_aes_key_set(KS_AES_ECB, pk08, SE_KEY_128_SIZE);
-    se_aes_iv_set(KS_AES_ECB, iv);
-    se_aes_crypt_cbc(KS_AES_ECB, DECRYPT, enc, pk11_size, enc, pk11_size);
+    se_aes_iv_set(KS_AES_ECB, iv, 0XF);
+    se_aes_crypt_cbc(KS_AES_ECB, DECRYPT, enc, enc, pk11_size);
 
     return 0;
 }
@@ -277,22 +277,22 @@ int extract_new_gen_keys(key_storage_t *keys, new_gen_keys_t *out, new_gen_keys_
         !key_exists(keys->header_key))
         return -1;
 
-    if (!emummc_storage_set_mmc_partition(EMMC_GPP)) {
+    if (emummc_storage_set_mmc_partition(EMMC_GPP)) {
         EPRINTF("DEBUG: Unable to set partition.");
         return -1;
     }
 
     LIST_INIT(gpt);
-    nx_emmc_gpt_parse(&gpt, &emmc_storage);
+    emmc_gpt_parse(&gpt);
 
-    emmc_part_t *system_part = nx_emmc_part_find(&gpt, "SYSTEM");
+    emmc_part_t *system_part = emmc_part_find(&gpt, "SYSTEM");
     if (!system_part) {
         EPRINTF("DEBUG: Unable to locate System partition.");
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return -1;
     }
 
-    nx_emmc_bis_init(system_part);
+    nx_emmc_bis_init(system_part, true, 0);
 
     // SYSTEM/USER BIS keyslots — the bis: diskio layer decrypts on the fly using
     // whatever is currently loaded in these hardware keyslots, so they must be
@@ -302,7 +302,7 @@ int extract_new_gen_keys(key_storage_t *keys, new_gen_keys_t *out, new_gen_keys_
 
     if (f_mount(&emmc_fs, "bis:", 1)) {
         EPRINTF("DEBUG: Unable to mount system partition.");
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return -1;
     }
 
@@ -311,7 +311,7 @@ int extract_new_gen_keys(key_storage_t *keys, new_gen_keys_t *out, new_gen_keys_
 
     if (mkr < 0 || mkr <= CURRENT_KEY_GENERATION) {
         f_mount(NULL, "bis:", 1);
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return (mkr < 0) ? -1 : 0;
     }
     *out_mkr = mkr;
@@ -330,7 +330,7 @@ int extract_new_gen_keys(key_storage_t *keys, new_gen_keys_t *out, new_gen_keys_
                                    pkg1_nca_path, sizeof(pkg1_nca_path)) < 0) {
         EPRINTF("DEBUG: BootImagePackage NCA (0100000000000819) not found.");
         f_mount(NULL, "bis:", 1);
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return -1;
     }
 
@@ -441,6 +441,6 @@ done:
     if (meta_buf) free(meta_buf);
     if (nca_open) f_close(&nca_fp);
     f_mount(NULL, "bis:", 1);
-    nx_emmc_gpt_free(&gpt);
+    emmc_gpt_free(&gpt);
     return result;
 }

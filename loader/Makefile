@@ -30,10 +30,10 @@ CUSTOMDEFINES := -DLP_MAGIC=$(MAGIC)
 CUSTOMDEFINES += -DLP_VER_MJ=$(LPVERSION_MAJOR) -DLP_VER_MN=$(LPVERSION_MINOR) -DLP_VER_BF=$(LPVERSION_BUGFX) -DLP_RESERVED=$(LPVERSION_RSVD)
 
 #TODO: Considering reinstating some of these when pointer warnings have been fixed.
-WARNINGS := -Wall -Wno-array-bounds -Wno-stringop-overflow
+WARNINGS := -Wall -Wsign-compare -Wno-array-bounds -Wno-stringop-overflow
 
 ARCH := -march=armv4t -mtune=arm7tdmi -mthumb-interwork
-CFLAGS = $(ARCH) -O2 -g -nostdlib -ffunction-sections -fdata-sections -fomit-frame-pointer -std=gnu11 $(WARNINGS) $(CUSTOMDEFINES)
+CFLAGS = $(ARCH) -O2 -nostdlib -ffunction-sections -fdata-sections -fomit-frame-pointer -std=gnu11 $(WARNINGS) $(CUSTOMDEFINES)
 LDFLAGS = $(ARCH) -nostartfiles -lgcc -Wl,--nmagic,--gc-sections -Xlinker --defsym=LDR_LOAD_ADDR=$(LDR_LOAD_ADDR)
 
 ################################################################################
@@ -44,9 +44,11 @@ all: $(TARGET).bin $(TOOLSLZ) $(TOOLSB2C)
 
 clean:
 	@rm -rf $(OBJS)
+	@rm -f payload_00.h
+	@rm -f payload_01.h
 
 $(TARGET).bin: $(BUILDDIR)/$(TARGET)/$(TARGET).elf
-	$(OBJCOPY) -S -O binary $< $(OUTPUTDIR)/$(PAYLOAD_NAME).bin
+	@$(OBJCOPY) -S -O binary $< $(OUTPUTDIR)/$(PAYLOAD_NAME).bin
 
 $(BUILDDIR)/$(TARGET)/$(TARGET).elf: $(OBJS)
 	@$(CC) $(LDFLAGS) -T link.ld $^ -o $@

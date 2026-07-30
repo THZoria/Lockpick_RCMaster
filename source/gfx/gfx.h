@@ -53,6 +53,33 @@ typedef struct _gfx_con_t
 extern gfx_ctxt_t gfx_ctxt;
 extern gfx_con_t gfx_con;
 
+/* Legacy color definitions - Kept for backward compatibility */
+#define COLOR_RED    0xFFFF0000  // Now matches Hekate TXT_CLR_ERROR
+#define COLOR_YELLOW 0xFFFFDD00  // Now matches Hekate TXT_CLR_WARNING
+#define COLOR_GREEN  0xFF40FF00
+#define COLOR_BLUE   0xFF00DDFF
+#define COLOR_VIOLET 0xFF8040FF
+#define COLOR_DEFAULT 0xFF1B1B1B
+
+/* Hekate-style color palette - Authentic Hekate colors from bootloader/gfx/gfx.h */
+#define COLOR_WHITE      0xFFFFFFFF  // Pure white
+#define COLOR_SOFT_WHITE 0xFFCCCCCC  // Hekate default text (TXT_CLR_DEFAULT)
+#define COLOR_CYAN       0xFF00CCFF  // Hekate light cyan (TXT_CLR_CYAN_L)
+#define COLOR_CYAN_L     0xFF00CCFF  // Hekate light cyan (TXT_CLR_CYAN_L)
+#define COLOR_TURQUOISE  0xFF00FFCC  // Hekate turquoise (TXT_CLR_TURQUOISE)
+#define COLOR_ORANGE     0xFFFFBA00  // Hekate orange (TXT_CLR_ORANGE)
+#define COLOR_GREENISH   0xFF96FF00  // Hekate toxic green (TXT_CLR_GREENISH)
+#define COLOR_WARNING    0xFFFFDD00  // Hekate warning yellow (TXT_CLR_WARNING)
+#define COLOR_ERROR      0xFFFF0000  // Hekate error red (TXT_CLR_ERROR)
+#define COLOR_GREEN_D    0xFF008800  // Hekate dark green (TXT_CLR_GREEN_D)
+#define COLOR_RED_D      0xFF880000  // Hekate dark red (TXT_CLR_RED_D)
+#define COLOR_GREY       0xFF888888  // Hekate grey (TXT_CLR_GREY)
+#define COLOR_GREY_M     0xFF555555  // Hekate medium grey (TXT_CLR_GREY_M)
+#define COLOR_GREY_DM    0xFF444444  // Hekate darker grey (TXT_CLR_GREY_DM)
+#define COLOR_GREY_D     0xFF303030  // Hekate darkest grey (TXT_CLR_GREY_D)
+
+static const u32 colors[6] = {COLOR_CYAN_L, COLOR_TURQUOISE, COLOR_GREENISH, COLOR_SOFT_WHITE, COLOR_ORANGE, COLOR_WHITE};
+
 void gfx_init_ctxt(u32 *fb, u32 width, u32 height, u32 stride);
 void gfx_clear_grey(u8 color);
 void gfx_clear_partial_grey(u8 color, u32 pos_x, u32 height);

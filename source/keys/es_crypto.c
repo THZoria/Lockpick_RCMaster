@@ -89,7 +89,7 @@ bool decrypt_eticket_rsa_key(key_storage_t *keys, void *buffer, bool is_dev) {
         ctr_key = temp_key;
 
         se_aes_key_set(KS_AES_CTR, ctr_key, SE_KEY_128_SIZE);
-        se_aes_crypt_ctr(KS_AES_CTR, &keys->eticket_rsa_keypair, sizeof(keys->eticket_rsa_keypair), encrypted_key, sizeof(keys->eticket_rsa_keypair), iv);
+        se_aes_crypt_ctr(KS_AES_CTR, &keys->eticket_rsa_keypair, encrypted_key, sizeof(keys->eticket_rsa_keypair), (void*)iv);
 
         if (test_eticket_rsa_keypair(&keys->eticket_rsa_keypair)) {
             memcpy(keys->eticket_rsa_kek, ctr_key, sizeof(keys->eticket_rsa_kek));
@@ -106,7 +106,7 @@ bool decrypt_eticket_rsa_key(key_storage_t *keys, void *buffer, bool is_dev) {
     }
 
     se_aes_key_set(KS_AES_CTR, ctr_key, SE_KEY_128_SIZE);
-    se_aes_crypt_ctr(KS_AES_CTR, &keys->eticket_rsa_keypair, sizeof(keys->eticket_rsa_keypair), encrypted_key, sizeof(keys->eticket_rsa_keypair), iv);
+    se_aes_crypt_ctr(KS_AES_CTR, &keys->eticket_rsa_keypair, encrypted_key, sizeof(keys->eticket_rsa_keypair), (void*) iv);
 
     if (!test_eticket_rsa_keypair(&keys->eticket_rsa_keypair)) {
         EPRINTF("Invalid eticket keypair.");

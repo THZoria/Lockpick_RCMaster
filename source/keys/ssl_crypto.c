@@ -102,7 +102,7 @@ bool decrypt_ssl_rsa_key(key_storage_t *keys, void *buffer) {
 
     u32 ctr_size = enforce_unique ? key_size - 0x20 : key_size - 0x10;
     se_aes_key_set(KS_AES_CTR, ctr_key, SE_KEY_128_SIZE);
-    se_aes_crypt_ctr(KS_AES_CTR, keys->ssl_rsa_key, ctr_size, encrypted_key, ctr_size, iv);
+    se_aes_crypt_ctr(KS_AES_CTR, keys->ssl_rsa_key, encrypted_key, ctr_size, (void*) iv);
 
     if (enforce_unique) {
         u32 calc_mac[SE_KEY_128_SIZE / 4] = {0};

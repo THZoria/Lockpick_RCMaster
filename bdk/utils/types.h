@@ -1,6 +1,6 @@
 /*
 * Copyright (c) 2018 naehrwert
-* Copyright (c) 2018-2021 CTCaer
+* Copyright (c) 2018-2025 CTCaer
 *
 * This program is free software; you can redistribute it and/or modify it
 * under the terms and conditions of the GNU General Public License,
@@ -46,20 +46,10 @@ typedef volatile unsigned short vu16;
 typedef volatile unsigned int vu32;
 
 #ifdef __aarch64__
-typedef u64 uptr;
+typedef unsigned long long uptr;
 #else /* __arm__ or __thumb__ */
-typedef u32 uptr;
+typedef unsigned long uptr;
 #endif
-
-/* Colors */
-#define COLOR_RED    0xFFE70000
-#define COLOR_ORANGE 0xFFFF8C00
-#define COLOR_YELLOW 0xFFFFFF40
-#define COLOR_GREEN  0xFF40FF00
-#define COLOR_BLUE   0xFF00DDFF
-#define COLOR_VIOLET 0xFF8040FF
-
-static const u32 colors[6] = {COLOR_RED, COLOR_ORANGE, COLOR_YELLOW, COLOR_GREEN, COLOR_BLUE, COLOR_VIOLET};
 
 /* Important */
 #define false 0
@@ -97,26 +87,23 @@ static const u32 colors[6] = {COLOR_RED, COLOR_ORANGE, COLOR_YELLOW, COLOR_GREEN
 #define SZ_PAGE SZ_4K
 
 /* Macros */
-#define ALWAYS_INLINE inline __attribute__((always_inline))
 #define ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
 #define ALIGN_DOWN(x, a) ((x) & ~((a) - 1))
 #define BIT(n) (1U << (n))
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define DIV_ROUND_UP(a, b) ((a + b - 1) / b)
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
-#define LOG2(n) (32 - __builtin_clz(n) - 1)
-#define CLZ(n) __builtin_clz(n)
-#define CLO(n) __builtin_clz(~n)
 
 #define OFFSET_OF(t, m) ((uptr)&((t *)NULL)->m)
 #define CONTAINER_OF(mp, t, mn) ((t *)((uptr)mp - OFFSET_OF(t, mn)))
 
-#define byte_swap_16(num) ((((num) >> 8) & 0xff) | (((num) << 8) & 0xff00))
-#define byte_swap_32(num) ((((num) >> 24) & 0xff) | (((num) << 8) & 0xff0000) | \
-						(((num) >> 8 )& 0xff00) | (((num) << 24) & 0xff000000))
+#define byte_swap_16(num) ((((num) >> 8) & 0xFF) | (((num) & 0xFF) << 8))
+#define byte_swap_32(num) ((((num) >> 24) &   0xFF) | (((num) & 0xFF00) << 8 ) | \
+						   (((num) >> 8 ) & 0xFF00) | (((num) &   0xFF) << 24))
 
+#define likely(x)   (__builtin_expect((x) != 0, 1))
+#define unlikely(x) (__builtin_expect((x) != 0, 0))
 
 /* Bootloader/Nyx */
 #define BOOT_CFG_AUTOBOOT_EN BIT(0)
@@ -152,8 +139,8 @@ typedef struct __attribute__((__packed__)) _boot_cfg_t
 	{
 		struct
 		{
-			char id[8]; // 7 char ASCII null teminated.
-			char emummc_path[0x78]; // emuMMC/XXX, ASCII null teminated.
+			char id[8]; // 7 char ASCII null terminated.
+			char emummc_path[0x78]; // emuMMC/XXX, ASCII null terminated.
 		};
 		u8 ums; // nyx_ums_type.
 		u8 xt_str[0x80];
@@ -162,12 +149,21 @@ typedef struct __attribute__((__packed__)) _boot_cfg_t
 
 static_assert(sizeof(boot_cfg_t) == 0x84, "Boot cfg storage size is wrong!");
 
+#define RSVD_FLAG_DRAM_8GB BIT(0)
+
+typedef struct __attribute__((__packed__)) _rsvd_cfg_t
+{
+	u16 rsvd0;
+	u8  rsvd_flags;
+	u8  bclk_t210:4;
+	u8  bclk_t210b01:4;
+} rsvd_cfg_t;
+
 typedef struct __attribute__((__packed__)) _ipl_ver_meta_t
 {
 	u32 magic;
 	u32 version;
-	u16 rsvd0;
-	u16 rsvd1;
+	rsvd_cfg_t rcfg;
 } ipl_ver_meta_t;
 
 typedef struct __attribute__((__packed__)) _reloc_meta_t
@@ -177,6 +173,11 @@ typedef struct __attribute__((__packed__)) _reloc_meta_t
 	u32 end;
 	u32 ep;
 } reloc_meta_t;
+
+// from old bdk
+
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+#define DIV_ROUND_UP(a, b) ((a + b - 1) / b)
 
 typedef enum
 {

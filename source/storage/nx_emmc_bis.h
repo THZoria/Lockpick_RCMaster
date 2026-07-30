@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2022 shchmue
+ * Copyright (c) 2019 shchmue
  * Copyright (c) 2019 CTCaer
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -18,8 +18,10 @@
 #ifndef NX_EMMC_BIS_H
 #define NX_EMMC_BIS_H
 
-#include "../storage/nx_emmc.h"
+#include <storage/emmc.h>
 #include <storage/sdmmc.h>
+
+#define NAND_PATROL_SECTOR   0xC20
 
 typedef struct _nx_emmc_cal0_spk_t
 {
@@ -223,14 +225,19 @@ typedef struct _nx_emmc_cal0_t
 
 	// 6.0.0 and up.
 	u8   battery_ver;
-	u8   crc16_pad58[0x1F];
+	u8   crc16_pad58[0xF];
+
+	// 10.0.0 and up.
+	u8   touch_ic_vendor_id;
+	u8   crc16_pad59[0xF];
 
 	// 9.0.0 and up.
-	u32  home_menu_scheme_model;
-	u8   crc16_pad59[0xC];
+	u32  color_model;
+	u8   crc16_pad60[0xC];
 
 	// 10.0.0 and up.
 	u8   console_6axis_sensor_mount_type;
+	u8   crc16_pad61[0xF];
 } __attribute__((packed)) nx_emmc_cal0_t;
 
 #define MAGIC_CAL0 0x304C4143
@@ -238,11 +245,8 @@ typedef struct _nx_emmc_cal0_t
 #define NX_EMMC_CALIBRATION_SIZE   0x8000
 #define XTS_CLUSTER_SIZE           0x4000
 
-int nx_emmc_bis_read(u32 sector, u32 count, void *buff);
-int nx_emmc_bis_write(u32 sector, u32 count, void *buff);
-void nx_emmc_bis_cluster_cache_init();
-void nx_emmc_bis_init(emmc_part_t *part);
-void nx_emmc_bis_finalize();
-void nx_emmc_bis_cache_lock(bool lock);
-
+int  nx_emmc_bis_read(u32 sector, u32 count, void *buff);
+int  nx_emmc_bis_write(u32 sector, u32 count, void *buff);
+void nx_emmc_bis_init(emmc_part_t *part, bool enable_cache, u32 emummc_offset);
+void nx_emmc_bis_end();
 #endif

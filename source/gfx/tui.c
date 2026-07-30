@@ -19,6 +19,7 @@
 #include "tui.h"
 #include "../config.h"
 #include <power/max17050.h>
+#include <soc/timer.h>
 #include <utils/btn.h>
 #include <utils/util.h>
 

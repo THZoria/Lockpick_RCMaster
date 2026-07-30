@@ -25,7 +25,7 @@ int ReadNcaHeader(const char *path, const u8 *header_key, NcaHeader *out) {
     se_aes_key_set(KS_NCA_HDR_CRYPT, header_key,        SE_KEY_128_SIZE);
     se_aes_key_set(KS_NCA_HDR_TWEAK, header_key + 0x10, SE_KEY_128_SIZE);
 
-    se_aes_xts_crypt(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, 0, 1, buf + 0x200, buf, 0x200, 1);
+    se_aes_crypt_xts(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, 0, 1, buf + 0x200, buf, 0x200, 1);
 
     se_aes_key_clear(KS_NCA_HDR_CRYPT);
     se_aes_key_clear(KS_NCA_HDR_TWEAK);

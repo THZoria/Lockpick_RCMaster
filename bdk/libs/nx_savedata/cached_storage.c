@@ -42,7 +42,8 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 static ALWAYS_INLINE cache_block_t *cache_block_init(cached_storage_ctx_t *ctx) {
     cache_block_t *block = calloc(1, sizeof(cache_block_t));
     block->buffer = malloc(ctx->block_size);
-    block->index = -1;
+    // block->index = -1;
+    block->index = UINT64_MAX;
     return block;
 }
 
@@ -107,7 +108,8 @@ static bool read_block(cached_storage_ctx_t *ctx, cache_block_t *block, uint64_t
     uint64_t offset = index * ctx->block_size;
     uint32_t length = ctx->block_size;
 
-    if (ctx->length != -1)
+    // if (ctx->length != -1)
+    if (ctx->length != UINT64_MAX)
         length = (uint32_t)MIN(ctx->length - offset, length);
 
     if (substorage_read(&ctx->base_storage, block->buffer, offset, length) != length) {

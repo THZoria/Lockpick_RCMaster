@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018 naehrwert
- * Copyright (c) 2018-2021 CTCaer
+ * Copyright (c) 2018-2025 CTCaer
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -39,6 +39,7 @@
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
 #include <storage/mbr_gpt.h>
+#include <utils/util.h>
 #include <gfx_utils.h>
 
 #define EFSPRINTF(text, ...) print_error(); gfx_printf("%k"text"%k\n", 0xFFFFFF00, 0xFFFFFFFF);
@@ -3932,14 +3933,11 @@ FRESULT f_read_fast (
 {
 	FRESULT res;
 	FATFS *fs;
-	UINT csize_bytes;
-	DWORD clst;
-	UINT count = 0;
+	UINT csize_bytes, count;
+	DWORD clst, work_bytes;
 	FSIZE_t work_sector = 0;
 	FSIZE_t sector_base = 0;
 	BYTE *wbuff = (BYTE*)buff;
-
-	// TODO support sector reading inside a cluster
 
 	res = validate(&fp->obj, &fs);			/* Check validity of the file object */
 	if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) {
@@ -3950,8 +3948,14 @@ FRESULT f_read_fast (
 	if (!(fp->flag & FA_READ)) LEAVE_FF(fs, FR_DENIED); /* Check access mode */
 	FSIZE_t remain = fp->obj.objsize - fp->fptr;
 	if (btr > remain) btr = (UINT)remain;		/* Truncate btr by remaining bytes */
+	if (!btr)
+		goto out;
 
 	csize_bytes = fs->csize * SS(fs);
+
+	//!TODO: support sector reading inside a cluster
+	DWORD csect = (UINT)((fp->fptr / SS(fs)) & (fs->csize - 1));	/* Sector offset in the cluster */
+	if (csect) { EFSPRINTF("ICSR"); ABORT(fs, FR_INT_ERR); }
 
 	if (!fp->fptr) {	/* On the top of the file? */
 		clst = fp->obj.sclust;	/* Follow from the origin */
@@ -3965,9 +3969,10 @@ FRESULT f_read_fast (
 	fp->clust = clst;	/* Set working cluster */
 
 	sector_base = clst2sect(fs, fp->clust);
-	count += fs->csize;
-	btr -= csize_bytes;
-	fp->fptr += csize_bytes;
+	work_bytes = MIN(btr, csize_bytes);
+	count = work_bytes / SS(fs);
+	fp->fptr += work_bytes;
+	btr -= work_bytes;
 
 	while (btr) {
 		clst = clmt_clust(fp, fp->fptr);	/* Get cluster# from the CLMT */
@@ -3978,26 +3983,27 @@ FRESULT f_read_fast (
 		fp->clust = clst;
 
 		work_sector = clst2sect(fs, fp->clust);
-		if ((work_sector - sector_base) == count) count += fs->csize;
+		work_bytes = MIN(btr, csize_bytes);
+		if ((work_sector - sector_base) == count) count += work_bytes / SS(fs);
 		else {
 			if (disk_read(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
 			wbuff += count * SS(fs);
 
 			sector_base = work_sector;
-			count = fs->csize;
+			count = work_bytes / SS(fs);
 		}
 
-		fp->fptr += MIN(btr, csize_bytes);
-		btr -= MIN(btr, csize_bytes);
-
-		// TODO: what about if data is smaller than cluster?
-		// Must read-write back that cluster.
-
-		if (!btr) {	/* Final cluster/sectors read. */
-			if (disk_read(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
-		}
+		fp->fptr += work_bytes;
+		btr -= work_bytes;
 	}
 
+	if (!btr) {	/* Final cluster/sectors read. */
+		if (work_bytes % SS(fs))
+			count++; /* Read an extra block. Expects buffer being big enough. */
+		if (disk_read(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
+	}
+
+out:
 	LEAVE_FF(fs, FR_OK);
 }
 #endif
@@ -4157,14 +4163,11 @@ FRESULT f_write_fast (
 {
 	FRESULT res;
 	FATFS *fs;
-	UINT csize_bytes;
-	DWORD clst;
-	UINT count = 0;
+	UINT csize_bytes, count;
+	DWORD clst, work_bytes;
 	FSIZE_t work_sector = 0;
 	FSIZE_t sector_base = 0;
 	const BYTE *wbuff = (const BYTE*)buff;
-
-	// TODO support sector writing inside a cluster
 
 	res = validate(&fp->obj, &fs);			/* Check validity of the file object */
 	if (res != FR_OK || (res = (FRESULT)fp->err) != FR_OK) {
@@ -4173,6 +4176,9 @@ FRESULT f_write_fast (
 	}
 
 	if (!(fp->flag & FA_WRITE)) LEAVE_FF(fs, FR_DENIED);	/* Check access mode */
+	if (!btw)
+		goto out;
+
 	/* Check fptr wrap-around (file size cannot reach 4 GiB at FAT volume) */
 	if ((!FF_FS_EXFAT || fs->fs_type != FS_EXFAT) && (DWORD)(fp->fptr + btw) < (DWORD)fp->fptr) {
 		btw = (UINT)(0xFFFFFFFF - (DWORD)fp->fptr);
@@ -4180,22 +4186,26 @@ FRESULT f_write_fast (
 
 	csize_bytes = fs->csize * SS(fs);
 
+	// TODO support sector writing inside a cluster
+	DWORD csect = (UINT)((fp->fptr / SS(fs)) & (fs->csize - 1));	/* Sector offset in the cluster */
+	if (csect) { EFSPRINTF("ICSR"); ABORT(fs, FR_INT_ERR); }
+
 	if (!fp->fptr) {	/* On the top of the file? */
 		clst = fp->obj.sclust;	/* Follow from the origin */
 	} else {
 		if (fp->cltbl) clst = clmt_clust(fp, fp->fptr);	/* Get cluster# from the CLMT */
 		else { EFSPRINTF("CLTBL"); ABORT(fs, FR_CLTBL_NO_INIT); }
 	}
-
 	if (clst < 2) { EFSPRINTF("CCHK"); ABORT(fs, FR_INT_ERR); }
 	else if (clst == 0xFFFFFFFF) { EFSPRINTF("DERR"); ABORT(fs, FR_DISK_ERR); }
 
 	fp->clust = clst;	/* Set working cluster */
 
 	sector_base = clst2sect(fs, fp->clust);
-	count += fs->csize;
-	btw -= csize_bytes;
-	fp->fptr += csize_bytes;
+	work_bytes = MIN(btw, csize_bytes);
+	count = work_bytes / SS(fs);
+	fp->fptr += work_bytes;
+	btw -= work_bytes;
 
 	while (btw) {
 		clst = clmt_clust(fp, fp->fptr);	/* Get cluster# from the CLMT */
@@ -4206,28 +4216,30 @@ FRESULT f_write_fast (
 		fp->clust = clst;
 
 		work_sector = clst2sect(fs, fp->clust);
-		if ((work_sector - sector_base) == count) count += fs->csize;
+		work_bytes = MIN(btw, csize_bytes);
+		if ((work_sector - sector_base) == count) count += work_bytes / SS(fs);
 		else {
 			if (disk_write(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
 			wbuff += count * SS(fs);
 
 			sector_base = work_sector;
-			count = fs->csize;
+			count = work_bytes / SS(fs);
 		}
 
-		fp->fptr += MIN(btw, csize_bytes);
-		btw -= MIN(btw, csize_bytes);
+		fp->fptr += work_bytes;
+		btw -= work_bytes;
+	}
 
-		// what about if data is smaller than cluster?
-		// Probably must read-write back that cluster.
-		if (!btw) {	/* Final cluster/sectors write. */
-			if (disk_write(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
-			fp->flag &= (BYTE)~FA_DIRTY;
-		}
+	if (!btw) {	/* Final cluster/sectors write. */
+		if (work_bytes % SS(fs))
+			count++; /* Write an extra block. Cluster is always > storage block. */
+		if (disk_write(fs->pdrv, wbuff, sector_base, count) != RES_OK) ABORT(fs, FR_DISK_ERR);
+		fp->flag &= (BYTE)~FA_DIRTY;
 	}
 
 	fp->flag |= FA_MODIFIED;	/* Set file change flag */
 
+out:
 	LEAVE_FF(fs, FR_OK);
 }
 #endif
@@ -4698,13 +4710,20 @@ FRESULT f_lseek (
 
 DWORD *f_expand_cltbl (
 	FIL* fp,		/* Pointer to the file object */
-	UINT tblsz,		/* Size of table */
+	UINT tblsz,		/* Size of table (2 DWORDs + 2 DWORDs per fragment) */
 	FSIZE_t ofs		/* File pointer from top of file */
 )
 {
+	/*
+	 * Cluster table structure:
+	 * Size (DWORD)
+	 * Padding (DWORD)
+	 * (Cluster Offset (DWORD) + Sequential clusters (DWORD)) * Fragments
+	 */
 	if (fp->flag & FA_WRITE) f_lseek(fp, ofs);	/* Expand file if write is enabled */
 	if (!fp->cltbl) {	/* Allocate memory for cluster link table */
 		fp->cltbl = (DWORD *)ff_memalloc(tblsz);
+		if (!fp->cltbl) return (void *)0;
 		fp->cltbl[0] = tblsz;
 	}
 	if (f_lseek(fp, CREATE_LINKMAP)) {	/* Create cluster link table */
@@ -5879,7 +5898,7 @@ FRESULT f_mkfs (
 	stat = disk_initialize(pdrv);
 	if (stat & STA_NOINIT) return FR_NOT_READY;
 	if (stat & STA_PROTECT) return FR_WRITE_PROTECTED;
-	if (disk_ioctl(pdrv, GET_BLOCK_SIZE, &sz_blk) != RES_OK || !sz_blk || sz_blk > 32768 || (sz_blk & (sz_blk - 1))) sz_blk = 1;	/* Erase block to align data area */
+	if (disk_ioctl(pdrv, GET_BLOCK_SIZE, &sz_blk) != RES_OK || !sz_blk || sz_blk > 131072 || (sz_blk & (sz_blk - 1))) sz_blk = 2048;	/* Erase block to align data area. 1MB minimum */
 #if FF_MAX_SS != FF_MIN_SS		/* Get sector size of the medium if variable sector size cfg. */
 	if (disk_ioctl(pdrv, GET_SECTOR_SIZE, &ss) != RES_OK) return FR_DISK_ERR;
 	if (ss > FF_MAX_SS || ss < FF_MIN_SS || (ss & (ss - 1))) return FR_DISK_ERR;
@@ -5915,7 +5934,7 @@ FRESULT f_mkfs (
 	} else {
 		/* Create a single-partition in this function */
 		if (disk_ioctl(pdrv, GET_SECTOR_COUNT, &sz_vol) != RES_OK) LEAVE_MKFS(FR_DISK_ERR);
-		b_vol = (opt & FM_SFD) ? 0 : 32768;		/* Volume start sector. Align to 16MB */
+		b_vol = (opt & FM_SFD) ? 0 : sz_blk;		/* Volume start sector */
 		if (sz_vol < b_vol) LEAVE_MKFS(FR_MKFS_ABORTED);
 		sz_vol -= b_vol;						/* Volume size */
 	}
@@ -6111,10 +6130,26 @@ FRESULT f_mkfs (
 					for (i = 0, pau = 1; cst32[i] && cst32[i] <= n; i++, pau <<= 1) ;	/* Get from table */
 				}
 				n_clst = sz_vol / pau;	/* Number of clusters */
-				sz_fat = (n_clst * 4 + 8 + ss - 1) / ss;	/* FAT size [sector] */
-				sz_rsv = 32;	/* Number of reserved sectors */
-				sz_dir = 0;		/* No static directory */
-				if (n_clst <= MAX_FAT16 || n_clst > MAX_FAT32) LEAVE_MKFS(FR_MKFS_ABORTED);
+				while (1) {
+					/* Do not account for reserved/root cluster on FAT size for better alignment. */
+					sz_fat = (n_clst * 4 + ss - 1) / ss;	/* FAT size [sector]. */
+					sz_rsv = 2048;	/* Number of reserved sectors. Use 1MB for better performance (for flash memory media) */
+					sz_dir = 0;		/* No static directory */
+					if (n_clst <= MAX_FAT16 || n_clst > MAX_FAT32) LEAVE_MKFS(FR_MKFS_ABORTED);
+					b_fat = b_vol + sz_rsv;						/* FAT base */
+					b_data = b_fat + sz_fat * n_fats + sz_dir;	/* Data base */
+
+					/* Align data base to erase block boundary (for flash memory media) */
+					n = ((b_data + sz_blk - 1) & ~(sz_blk - 1)) - b_data;	/* Next nearest erase block from current data base */
+					b_fat += n;		/* FAT32: Move FAT base */
+					/* Make sure FAT base is aligned to reserved size for performance (PRF2SAFE min cluster alignment) */
+					if ((b_fat & (sz_rsv - 1) || (n_fats == 2 && sz_fat & (sz_rsv - 1)))) {
+						n_clst++;	/* FAT size must always be bigger than real free size */
+						continue;
+					}
+					sz_rsv += n;
+					break;
+				}
 			} else {				/* FAT volume */
 				if (pau == 0) {	/* au auto-selection */
 					n = sz_vol / 0x1000;	/* Volume size in unit of 4KS */
@@ -6130,17 +6165,13 @@ FRESULT f_mkfs (
 				sz_fat = (n + ss - 1) / ss;		/* FAT size [sector] */
 				sz_rsv = 1;						/* Number of reserved sectors */
 				sz_dir = (DWORD)n_rootdir * SZDIRE / ss;	/* Rootdir size [sector] */
-			}
-			b_fat = b_vol + sz_rsv;						/* FAT base */
-			b_data = b_fat + sz_fat * n_fats + sz_dir;	/* Data base */
+				b_fat = b_vol + sz_rsv;						/* FAT base */
+				b_data = b_fat + sz_fat * n_fats + sz_dir;	/* Data base */
 
-			/* Align data base to erase block boundary (for flash memory media) */
-			n = ((b_data + sz_blk - 1) & ~(sz_blk - 1)) - b_data;	/* Next nearest erase block from current data base */
-			if (fmt == FS_FAT32) {		/* FAT32: Move FAT base */
-				sz_rsv += n; b_fat += n;
-			} else {					/* FAT: Expand FAT size */
+				/* Align data base to erase block boundary (for flash memory media) */
+				n = ((b_data + sz_blk - 1) & ~(sz_blk - 1)) - b_data;	/* Next nearest erase block from current data base */
 				if (n % n_fats) {	/* Adjust fractional error if needed */
-					n--; sz_rsv++; b_fat++;
+					n--; sz_rsv++; b_fat++;	/* FAT: Expand FAT size */
 				}
 				sz_fat += n / n_fats;
 			}
@@ -6183,7 +6214,7 @@ FRESULT f_mkfs (
 		/* Create FAT VBR */
 		mem_set(buf, 0, ss);
 		/* Boot jump code (x86), OEM name */
-		if (!(opt & FM_PRF2)) mem_cpy(buf + BS_JmpBoot, "\xEB\xFE\x90" "NYX1.0.0", 11);
+		if (!(opt & FM_PRF2)) mem_cpy(buf + BS_JmpBoot, "\xEB\xFE\x90" "NYX1.8.0", 11);
 		else mem_cpy(buf + BS_JmpBoot, "\xEB\xE9\x90\x00\x00\x00\x00\x00\x00\x00\x00", 11);
 		st_word(buf + BPB_BytsPerSec, ss);				/* Sector size [byte] */
 		buf[BPB_SecPerClus] = (BYTE)pau;				/* Cluster size [sector] */
@@ -6228,21 +6259,22 @@ FRESULT f_mkfs (
 			mem_set(buf, 0, ss);
 			st_dword(buf + FSI_LeadSig, 0x41615252);
 			st_dword(buf + FSI_StrucSig, 0x61417272);
-			st_dword(buf + FSI_Free_Count, n_clst - 1);	/* Number of free clusters */
-			st_dword(buf + FSI_Nxt_Free, 2);			/* Last allocated cluster# */
+			if (opt & FM_PRF2) {
+				st_dword(buf + FSI_Free_Count, 0xFFFFFFFF);	/* Invalidate free count */
+				st_dword(buf + FSI_Nxt_Free, 0xFFFFFFFF);	/* Invalidate last allocated cluster */
+			} else {
+				st_dword(buf + FSI_Free_Count, n_clst - 1);	/* Number of free clusters */
+				st_dword(buf + FSI_Nxt_Free, 2);			/* Last allocated cluster# */
+			}
 			st_word(buf + BS_55AA, 0xAA55);
 			disk_write(pdrv, buf, b_vol + 7, 1);		/* Write backup FSINFO (VBR + 7) */
 			disk_write(pdrv, buf, b_vol + 1, 1);		/* Write original FSINFO (VBR + 1) */
 		}
 
-		/* Create PRF2SAFE info */
+		/* Clear PRF2SAFE info so PrFILE2 can recreate it and upgrade it if old */
 		if (fmt == FS_FAT32 && opt & FM_PRF2) {
 			mem_set(buf, 0, ss);
-			buf[16] = 0x64;							/* Record type */
-			st_dword(buf + 32, 0x03);				/* Unknown. SYSTEM: 0x3F00. USER: 0x03. Volatile. */
-			st_dword(buf + 36, 25);					/* Entries. SYSTEM: 22. USER: 25.Static? */
-			st_dword(buf + 508, 0x517BBFE0);		/* Custom CRC32. SYSTEM: 0x6B673904. USER: 0x517BBFE0. */
-			disk_write(pdrv, buf, b_vol + 3, 1);	/* Write PRF2SAFE info (VBR + 3) */
+			disk_write(pdrv, buf, b_vol + 3, 1);			/* Write PRF2SAFE info (VBR + 3) */
 		}
 
 		/* Initialize FAT area */
@@ -6733,7 +6765,6 @@ int f_puts (
 {
 	putbuff pb;
 
-
 	if (str == (void *)0) return EOF; /* String is NULL */
 
 	putc_init(&pb, fp);
@@ -6760,7 +6791,6 @@ int f_printf (
 	UINT i, j, w;
 	DWORD v;
 	TCHAR c, d, str[32], *p;
-
 
 	if (fmt == (void *)0) return EOF; /* String is NULL */
 
