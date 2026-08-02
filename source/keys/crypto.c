@@ -129,7 +129,7 @@ u32 rsa_oaep_decode(void *dst, u32 dst_size, const void *label_digest, u32 label
     int invalid_db_padding = 0;
     int is_zero;
     int is_one;
-    for (int i = 0; i < db_len; ) {
+    for (u32 i = 0; i < db_len; ) {
         is_zero = (db[i] == 0);
         is_one  = (db[i] == 1);
         msg_ofs += (looking_for_one & is_one) * (++i);
