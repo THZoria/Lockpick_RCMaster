@@ -979,3 +979,18 @@ void se_aes_key_partial_set(u32 ks, u32 index, u32 data)
 	SE(SE_CRYPTO_KEYTABLE_ADDR_REG) = SE_KEYTABLE_SLOT(ks) | index;
 	SE(SE_CRYPTO_KEYTABLE_DATA_REG) = data;
 }
+
+int se_aes_crypt_xts_nx(u32 tweak_ks, u32 crypt_ks, int enc, u64 sec, void *dst, void *src, u32 secsize, u32 num_secs) {
+	u8 tweak[SE_AES_BLOCK_SIZE] __attribute__((aligned(4)));
+
+	u8 *pdst = (u8 *)dst;
+	u8 *psrc = (u8 *)src;
+
+	for (u32 i = 0; i < num_secs; i++) {
+		if (se_aes_crypt_xts_sec_nx(tweak_ks, crypt_ks, enc, sec + i, tweak, true, 0, pdst + secsize * i, psrc + secsize * i, secsize)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}

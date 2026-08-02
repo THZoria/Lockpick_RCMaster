@@ -50,21 +50,6 @@ u16 crc16_calc(const u8 *buf, u32 len)
 	return crc16_calc_continue(0x55AA, buf, len);
 }
 
-static int se_aes_crypt_xts_nx(u32 tweak_ks, u32 crypt_ks, int enc, u64 sec, void *dst, void *src, u32 secsize, u32 num_secs) {
-	u8 tweak[SE_AES_BLOCK_SIZE] __attribute__((aligned(4)));
-
-	u8 *pdst = (u8 *)dst;
-	u8 *psrc = (u8 *)src;
-
-	for (u32 i = 0; i < num_secs; i++) {
-		if (se_aes_crypt_xts_sec_nx(tweak_ks, crypt_ks, enc, sec + i, tweak, true, 0, pdst + secsize * i, psrc + secsize * i, secsize)) {
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 bool cal0_read(u32 tweak_ks, u32 crypt_ks, void *read_buffer) {
     nx_emmc_cal0_t *cal0 = (nx_emmc_cal0_t *)read_buffer;
 

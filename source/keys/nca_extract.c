@@ -67,8 +67,8 @@ static int _parse_nca_sect0_info(const char *path, const u8 *header_key,
 
     se_aes_key_set(KS_NCA_HDR_CRYPT, header_key,        SE_KEY_128_SIZE);
     se_aes_key_set(KS_NCA_HDR_TWEAK, header_key + 0x10, SE_KEY_128_SIZE);
-    se_aes_crypt_xts(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 1, buf + 0x400, buf + 0x000, 0x200, 1);
-    se_aes_crypt_xts(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 2, buf + 0x600, buf + 0x200, 0x200, 1);
+    se_aes_crypt_xts_nx(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 1, buf + 0x400, buf + 0x000, 0x200, 1);
+    se_aes_crypt_xts_nx(KS_NCA_HDR_TWEAK, KS_NCA_HDR_CRYPT, DECRYPT, 2, buf + 0x600, buf + 0x200, 0x200, 1);
     se_aes_key_clear(KS_NCA_HDR_CRYPT);
     se_aes_key_clear(KS_NCA_HDR_TWEAK);
 
@@ -198,7 +198,7 @@ static int _decrypt_package1_cbc(u8 *pkg1, u32 total_size, const u8 *pk08) {
     u8 *enc = pkg1 + BODY_OFF;
 
     se_aes_key_set(KS_AES_ECB, pk08, SE_KEY_128_SIZE);
-    se_aes_iv_set(KS_AES_ECB, iv, 0XF);
+    se_aes_iv_set(KS_AES_ECB, iv, 0xF);
     se_aes_crypt_cbc(KS_AES_ECB, DECRYPT, enc, enc, pk11_size);
 
     return 0;
