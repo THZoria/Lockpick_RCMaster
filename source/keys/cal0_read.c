@@ -20,8 +20,35 @@
 #include <sec/se.h>
 #include <sec/se_t210.h>
 #include "../storage/emummc.h"
-#include "../storage/nx_emmc.h"
+#include <storage/emmc.h>
 #include <utils/util.h>
+
+static const u16 crc16_table16[16] = {
+	0x0000, 0xCC01, 0xD801, 0x1400,
+	0xF001, 0x3C00, 0x2800, 0xE401,
+	0xA001, 0x6C00, 0x7800, 0xB401,
+	0x5000, 0x9C01, 0x8801, 0x4400
+};
+
+/* ----- CRC16 (CAL0) implementation (ported from switchbrew/wiki/Calibration) ----- */
+/* Core: continue CRC starting from `crc` */
+u16 crc16_calc_continue(u16 crc, const u8 *buf, u32 len)
+{
+	const u8 *p = buf;
+	const u8 *q = buf + len;
+
+	for (; p < q; p++) {
+		u8 oct = *p;
+		crc = (crc >> 4) ^ crc16_table16[crc & 0xF] ^ crc16_table16[(oct >> 0) & 0xF];
+		crc = (crc >> 4) ^ crc16_table16[crc & 0xF] ^ crc16_table16[(oct >> 4) & 0xF];
+	}
+	return crc;
+}
+
+u16 crc16_calc(const u8 *buf, u32 len)
+{
+	return crc16_calc_continue(0x55AA, buf, len);
+}
 
 bool cal0_read(u32 tweak_ks, u32 crypt_ks, void *read_buffer) {
     nx_emmc_cal0_t *cal0 = (nx_emmc_cal0_t *)read_buffer;
@@ -31,12 +58,12 @@ bool cal0_read(u32 tweak_ks, u32 crypt_ks, void *read_buffer) {
         return true;
     }
 
-    if (!emummc_storage_read(NX_EMMC_CALIBRATION_OFFSET / NX_EMMC_BLOCKSIZE, NX_EMMC_CALIBRATION_SIZE / NX_EMMC_BLOCKSIZE, read_buffer)) {
+    if (emummc_storage_read(NX_EMMC_CALIBRATION_OFFSET / EMMC_BLOCKSIZE, NX_EMMC_CALIBRATION_SIZE / EMMC_BLOCKSIZE, read_buffer)) {
         EPRINTF("Unable to read PRODINFO.");
         return false;
     }
 
-    se_aes_xts_crypt(tweak_ks, crypt_ks, DECRYPT, 0, read_buffer, read_buffer, XTS_CLUSTER_SIZE, NX_EMMC_CALIBRATION_SIZE / XTS_CLUSTER_SIZE);
+    se_aes_crypt_xts_nx(tweak_ks, crypt_ks, DECRYPT, 0, read_buffer, read_buffer, XTS_CLUSTER_SIZE, NX_EMMC_CALIBRATION_SIZE / XTS_CLUSTER_SIZE);
 
     if (cal0->magic != MAGIC_CAL0) {
         EPRINTF("Invalid CAL0 magic. Check BIS key 0.");

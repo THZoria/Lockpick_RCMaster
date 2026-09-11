@@ -18,7 +18,9 @@
 #define _SPRINTF_H_
 
 #include "types.h"
+#include <stdarg.h>
 
 u32 s_printf(char *buffer, const char *fmt, ...);
+u32 s_vprintf(char *buffer, const char *fmt, va_list ap);
 
 #endif

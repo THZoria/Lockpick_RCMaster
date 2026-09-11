@@ -40,10 +40,11 @@
 #include <sec/se_t210.h>
 #include <soc/fuse.h>
 #include <soc/t210.h>
+#include <soc/timer.h>
 #include "../storage/emummc.h"
-#include "../storage/nx_emmc.h"
+#include <storage/emmc.h>
 #include "../storage/nx_emmc_bis.h"
-#include <storage/nx_sd.h>
+#include <storage/sd.h>
 #include <storage/sdmmc.h>
 #include <utils/btn.h>
 #include <utils/list.h>
@@ -146,7 +147,7 @@ static void _derive_keyblob_keys(key_storage_t *keys) {
 
     if (!emmc_storage.initialized) {
         have_keyblobs = false;
-    } else if (!emummc_storage_read(KEYBLOB_OFFSET / NX_EMMC_BLOCKSIZE, KB_FIRMWARE_VERSION_600 + 1, keyblob_buffer)) {
+    } else if (emummc_storage_read(KEYBLOB_OFFSET / EMMC_BLOCKSIZE, KB_FIRMWARE_VERSION_600 + 1, keyblob_buffer)) {
         EPRINTF("Unable to read keyblobs.");
         have_keyblobs = false;
     } else {
@@ -178,7 +179,7 @@ static void _derive_keyblob_keys(key_storage_t *keys) {
 
         // Decrypt keyblobs
         se_aes_key_set(KS_AES_CTR, keys->keyblob_key[i], sizeof(keys->keyblob_key[i]));
-        se_aes_crypt_ctr(KS_AES_CTR, &keys->keyblob[i], sizeof(keyblob_t), &current_keyblob->key_data, sizeof(keyblob_t), current_keyblob->iv);
+        se_aes_crypt_ctr(KS_AES_CTR, &keys->keyblob[i], &current_keyblob->key_data, sizeof(keyblob_t), (void*) current_keyblob->iv);
 
         memcpy(keys->package1_key[i], keys->keyblob[i].package1_key, sizeof(keys->package1_key[i]));
         memcpy(keys->master_kek[i], keys->keyblob[i].master_kek, sizeof(keys->master_kek[i]));
@@ -458,7 +459,7 @@ static void _derive_emmc_keys(key_storage_t *keys, titlekey_buffer_t *titlekey_b
     se_aes_key_set(KS_BIS_02_CRYPT, keys->bis_key[2] + 0x00, SE_KEY_128_SIZE);
     se_aes_key_set(KS_BIS_02_TWEAK, keys->bis_key[2] + 0x10, SE_KEY_128_SIZE);
 
-    if (!emummc_storage_set_mmc_partition(EMMC_GPP)) {
+    if (emummc_storage_set_mmc_partition(EMMC_GPP)) {
         EPRINTF("Unable to set partition.");
         return;
     }
@@ -473,24 +474,24 @@ static void _derive_emmc_keys(key_storage_t *keys, titlekey_buffer_t *titlekey_b
 
     // Parse eMMC GPT
     LIST_INIT(gpt);
-    nx_emmc_gpt_parse(&gpt, &emmc_storage);
+    emmc_gpt_parse(&gpt);
 
-    emmc_part_t *system_part = nx_emmc_part_find(&gpt, "SYSTEM");
+    emmc_part_t *system_part = emmc_part_find(&gpt, "SYSTEM");
     if (!system_part) {
         EPRINTF("Unable to locate System partition.");
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return;
     }
 
-    nx_emmc_bis_init(system_part);
+    nx_emmc_bis_init(system_part, true, 0);
 
     if (f_mount(&emmc_fs, "bis:", 1)) {
         EPRINTF("Unable to mount system partition.");
-        nx_emmc_gpt_free(&gpt);
+        emmc_gpt_free(&gpt);
         return;
     }
 
-    if (!sd_mount()) {
+    if (sd_mount()) {
         EPRINTF("Unable to mount SD.");
     } else if (!_derive_sd_seed(keys)) {
         EPRINTF("Unable to get SD seed.");
@@ -501,7 +502,7 @@ static void _derive_emmc_keys(key_storage_t *keys, titlekey_buffer_t *titlekey_b
     }
 
     f_mount(NULL, "bis:", 1);
-    nx_emmc_gpt_free(&gpt);
+    emmc_gpt_free(&gpt);
 }
 
 // The security engine supports partial key override for locked keyslots
@@ -580,7 +581,7 @@ int save_mariko_partial_keys(u32 start, u32 count, bool append) {
         mode |= FA_CREATE_ALWAYS;
     }
 
-    if (!sd_mount()) {
+    if (sd_mount()) {
         EPRINTF("Unable to mount SD.");
         free(text_buffer);
         return 3;
@@ -604,7 +605,7 @@ int save_mariko_partial_keys(u32 start, u32 count, bool append) {
 
 static void _save_keys_to_sd(key_storage_t *keys, titlekey_buffer_t *titlekey_buffer, bool is_dev,
                               const new_gen_keys_t *new_keys, int new_gen_mkr) {
-    if (!sd_mount()) {
+    if (sd_mount()) {
         EPRINTF("Unable to mount SD.");
         return;
     }
@@ -803,7 +804,7 @@ static void _derive_keys() {
 
     minerva_periodic_training();
 
-    if (emmc_storage.initialized && !emummc_storage_set_mmc_partition(EMMC_BOOT0)) {
+    if (emmc_storage.initialized && emummc_storage_set_mmc_partition(EMMC_BOOT0)) {
         EPRINTF("Unable to set partition.");
         emummc_storage_end();
     }
@@ -836,7 +837,7 @@ static void _derive_keys() {
         gfx_printf("%kKey generation up to date.\n", colors[(color_idx++) % 6]);
     }
 
-    titlekey_buffer_t *titlekey_buffer = (titlekey_buffer_t *)TITLEKEY_BUF_ADR;
+    titlekey_buffer_t *titlekey_buffer = (titlekey_buffer_t *)MIXD_BUF_ALIGNED;
 
     // Requires BIS key for SYSTEM partition
     if (!emmc_storage.initialized) {
@@ -895,7 +896,7 @@ void derive_amiibo_keys() {
     minerva_periodic_training();
 
     u32 hash[SE_SHA_256_SIZE / 4] = {0};
-    se_calc_sha256_oneshot(hash, &nfc_save_keys[0], sizeof(nfc_save_keys));
+    se_sha_hash_256_oneshot(hash, &nfc_save_keys[0], sizeof(nfc_save_keys));
 
     if (memcmp(hash, is_dev ? nfc_blob_hash_dev : nfc_blob_hash, sizeof(hash)) != 0) {
         EPRINTF("Amiibo hash mismatch. Skipping save.");

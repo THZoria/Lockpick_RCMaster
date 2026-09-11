@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 CTCaer
+ * Copyright (c) 2019-2022 CTCaer
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -18,18 +18,19 @@
 #include <stdlib.h>
 
 #include "emummc.h"
-#include <storage/sdmmc.h>
 #include "../config.h"
+#include <storage/sdmmc.h>
 #include <utils/ini.h>
 #include <gfx_utils.h>
 #include <libs/fatfs/ff.h>
 #include <mem/heap.h>
-#include "../storage/nx_emmc.h"
-#include <storage/nx_sd.h>
+#include <storage/emmc.h>
+#include <storage/sd.h>
 #include <utils/list.h>
 #include <utils/types.h>
 
 extern hekate_config h_cfg;
+
 emummc_cfg_t emu_cfg = { 0 };
 
 void emummc_load_cfg()
@@ -50,7 +51,7 @@ void emummc_load_cfg()
 	emu_cfg.emummc_file_based_path[0] = 0;
 
 	LIST_INIT(ini_sections);
-	if (ini_parse(&ini_sections, "emuMMC/emummc.ini", false))
+	if (!ini_parse(&ini_sections, "emuMMC/emummc.ini", false))
 	{
 		LIST_FOREACH_ENTRY(ini_sec_t, ini_sec, &ini_sections, link)
 		{
@@ -61,14 +62,14 @@ void emummc_load_cfg()
 
 				LIST_FOREACH_ENTRY(ini_kv_t, kv, &ini_sec->kvs, link)
 				{
-					if (!strcmp("enabled", kv->key))
+					if (!strcmp("enabled",            kv->key))
 						emu_cfg.enabled = atoi(kv->val);
-					else if (!strcmp("sector", kv->key))
-						emu_cfg.sector = strtol(kv->val, NULL, 16);
-					else if (!strcmp("id", kv->key))
-						emu_cfg.id = strtol(kv->val, NULL, 16);
-					else if (!strcmp("path", kv->key))
-						emu_cfg.path = kv->val;
+					else if (!strcmp("sector",        kv->key))
+						emu_cfg.sector  = strtol(kv->val, NULL, 16);
+					else if (!strcmp("id",            kv->key))
+						emu_cfg.id      = strtol(kv->val, NULL, 16);
+					else if (!strcmp("path",          kv->key))
+						emu_cfg.path   = kv->val;
 					else if (!strcmp("nintendo_path", kv->key))
 						strcpy(emu_cfg.nintendo_path, kv->val);
 				}
@@ -144,13 +145,13 @@ int emummc_storage_init_mmc()
 	emu_cfg.active_part = 0;
 
 	// Always init eMMC even when in emuMMC. eMMC is needed from the emuMMC driver anyway.
-	if (!sdmmc_storage_init_mmc(&emmc_storage, &emmc_sdmmc, SDMMC_BUS_WIDTH_8, SDHCI_TIMING_MMC_HS400))
+	if (emmc_initialize(false))
 		return 2;
 
 	if (!emu_cfg.enabled || h_cfg.emummc_force_disable)
 		return 0;
 
-	if (!sd_mount())
+	if (sd_mount())
 		goto out;
 
 	if (!emu_cfg.sector)
@@ -183,11 +184,11 @@ out:
 int emummc_storage_end()
 {
 	if (!emu_cfg.enabled || h_cfg.emummc_force_disable)
-		sdmmc_storage_end(&emmc_storage);
+		emmc_end();
 	else
 		sd_end();
 
-	return 1;
+	return 0;
 }
 
 int emummc_storage_read(u32 sector, u32 num_sectors, void *buf)
@@ -218,21 +219,19 @@ int emummc_storage_read(u32 sector, u32 num_sectors, void *buf)
 		if (f_open(&fp, emu_cfg.emummc_file_based_path, FA_READ))
 		{
 			EPRINTF("Failed to open emuMMC image.");
-			return 0;
+			return 1;
 		}
 		f_lseek(&fp, (u64)sector << 9);
 		if (f_read(&fp, buf, (u64)num_sectors << 9, NULL))
 		{
 			EPRINTF("Failed to read emuMMC image.");
 			f_close(&fp);
-			return 0;
+			return 1;
 		}
 
 		f_close(&fp);
-		return 1;
+		return 0;
 	}
-
-	return 1;
 }
 
 int emummc_storage_write(u32 sector, u32 num_sectors, void *buf)
@@ -262,27 +261,27 @@ int emummc_storage_write(u32 sector, u32 num_sectors, void *buf)
 		}
 
 		if (f_open(&fp, emu_cfg.emummc_file_based_path, FA_WRITE))
-			return 0;
+			return 1;
 
 		f_lseek(&fp, (u64)sector << 9);
 		if (f_write(&fp, buf, (u64)num_sectors << 9, NULL))
 		{
 			f_close(&fp);
-			return 0;
+			return 1;
 		}
 
 		f_close(&fp);
-		return 1;
+		return 0;
 	}
 }
 
 int emummc_storage_set_mmc_partition(u32 partition)
 {
 	emu_cfg.active_part = partition;
-	sdmmc_storage_set_mmc_partition(&emmc_storage, partition);
+	emmc_set_partition(partition);
 
 	if (!emu_cfg.enabled || h_cfg.emummc_force_disable || emu_cfg.sector)
-		return 1;
+		return 0;
 	else
 	{
 		strcpy(emu_cfg.emummc_file_based_path, emu_cfg.path);
@@ -301,8 +300,6 @@ int emummc_storage_set_mmc_partition(u32 partition)
 			break;
 		}
 
-		return 1;
+		return 0;
 	}
-
-	return 1;
 }

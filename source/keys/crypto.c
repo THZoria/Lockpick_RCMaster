@@ -37,7 +37,7 @@ int key_exists(const void *data) {
 
 int run_ams_keygen() {
     tsec_ctxt_t tsec_ctxt;
-    tsec_ctxt.fw = tsec_keygen;
+    tsec_ctxt.fw = (void*) tsec_keygen;
     tsec_ctxt.size = sizeof(tsec_keygen);
     tsec_ctxt.type = TSEC_FW_TYPE_NEW;
 
@@ -96,7 +96,7 @@ static void _mgf1_xor(void *masked, u32 masked_size, const void *seed, u32 seed_
             hash_buf[seed_size + 3 - i] = (round_num >> (8 * i)) & 0xff;
         round_num++;
 
-        se_calc_sha256_oneshot(cur_hash, hash_buf, hash_buf_size);
+        se_sha_hash_256_oneshot(cur_hash, hash_buf, hash_buf_size);
 
         for (unsigned int i = 0; i < cur_size; i++) {
             *p_out ^= cur_hash[i];
@@ -129,7 +129,7 @@ u32 rsa_oaep_decode(void *dst, u32 dst_size, const void *label_digest, u32 label
     int invalid_db_padding = 0;
     int is_zero;
     int is_one;
-    for (int i = 0; i < db_len; ) {
+    for (u32 i = 0; i < db_len; ) {
         is_zero = (db[i] == 0);
         is_one  = (db[i] == 1);
         msg_ofs += (looking_for_one & is_one) * (++i);
@@ -184,7 +184,7 @@ void generate_aes_key(u32 ks, key_storage_t *keys, void *out_key, u32 key_size, 
     u32 aes_key[SE_KEY_128_SIZE / 4] = {0};
     load_aes_key(ks, aes_key, access_key, aes_key_generation_source);
     se_aes_key_set(ks, aes_key, SE_KEY_128_SIZE);
-    se_aes_crypt_ecb(ks, DECRYPT, out_key, key_size, key_source, key_size);
+    se_aes_crypt_ecb(ks, DECRYPT, out_key, key_source, key_size);
 }
 
 // Equivalent to smc::PrepareDeviceUniqueDataKey but with no sealing
@@ -203,8 +203,8 @@ void decrypt_aes_key(u32 ks, key_storage_t *keys, void *out_key, const void *key
 void get_secure_data(key_storage_t *keys, void *out_data) {
     se_aes_key_set(KS_AES_CTR, keys->device_key, SE_KEY_128_SIZE);
     u8 *d = (u8 *)out_data;
-    se_aes_crypt_ctr(KS_AES_CTR, d + SE_KEY_128_SIZE * 0, SE_KEY_128_SIZE, secure_data_source, SE_KEY_128_SIZE, secure_data_counters[0]);
-    se_aes_crypt_ctr(KS_AES_CTR, d + SE_KEY_128_SIZE * 1, SE_KEY_128_SIZE, secure_data_source, SE_KEY_128_SIZE, secure_data_counters[0]);
+    se_aes_crypt_ctr(KS_AES_CTR, d + SE_KEY_128_SIZE * 0, secure_data_source, SE_KEY_128_SIZE, (void*) secure_data_counters[0]);
+    se_aes_crypt_ctr(KS_AES_CTR, d + SE_KEY_128_SIZE * 1, secure_data_source, SE_KEY_128_SIZE, (void*) secure_data_counters[0]);
 
     // Apply tweak
     for (u32 i = 0; i < SE_KEY_128_SIZE; i++) {
@@ -218,7 +218,7 @@ void generate_specific_aes_key(u32 ks, key_storage_t *keys, void *out_key, const
         get_device_key(ks, keys, keys->temp_key, generation == 0 ? 0 : generation - 1);
         se_aes_key_set(ks, keys->temp_key, SE_KEY_128_SIZE);
         se_aes_unwrap_key(ks, ks, retail_specific_aes_key_source);
-        se_aes_crypt_ecb(ks, DECRYPT, out_key, SE_KEY_128_SIZE * 2, key_source, SE_KEY_128_SIZE * 2);
+        se_aes_crypt_ecb(ks, DECRYPT, out_key, key_source, SE_KEY_128_SIZE * 2);
     } else {
         get_secure_data(keys, out_key);
     }

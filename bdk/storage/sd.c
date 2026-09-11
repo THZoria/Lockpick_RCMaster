@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2018 naehrwert
- * Copyright (c) 2018-2021 CTCaer
+ * Copyright (c) 2018-2023 CTCaer
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -15,16 +15,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <storage/nx_sd.h>
+#include <storage/sd.h>
 #include <storage/sdmmc.h>
 #include <storage/sdmmc_driver.h>
 #include <gfx_utils.h>
 #include <libs/fatfs/ff.h>
 #include <mem/heap.h>
 
+#ifndef BDK_SDMMC_UHS_DDR200_SUPPORT
+#define SD_DEFAULT_SPEED SD_UHS_SDR104
+#else
+#define SD_DEFAULT_SPEED SD_UHS_DDR208
+#endif
+
 static bool sd_mounted = false;
+static bool sd_init_done = false;
+static bool insertion_event = false;
 static u16  sd_errors[3] = { 0 }; // Init and Read/Write errors.
-static u32  sd_mode = SD_UHS_SDR82;
+static u32  sd_mode = SD_DEFAULT_SPEED;
+
 
 sdmmc_t sd_sdmmc;
 sdmmc_storage_t sd_storage;
@@ -53,10 +62,15 @@ u16 *sd_get_error_count()
 
 bool sd_get_card_removed()
 {
-	if (!sdmmc_get_sd_inserted())
+	if (insertion_event && !sdmmc_get_sd_inserted())
 		return true;
 
 	return false;
+}
+
+bool sd_get_card_initialized()
+{
+	return sd_init_done;
 }
 
 bool sd_get_card_mounted()
@@ -72,7 +86,11 @@ u32 sd_get_mode()
 int sd_init_retry(bool power_cycle)
 {
 	u32 bus_width = SDMMC_BUS_WIDTH_4;
-	u32 type = SDHCI_TIMING_UHS_SDR82;
+#ifndef BDK_SDMMC_UHS_DDR200_SUPPORT
+	u32 type = SDHCI_TIMING_UHS_SDR104;
+#else
+	u32 type = SDHCI_TIMING_UHS_DDR200;
+#endif
 
 	// Power cycle SD card.
 	if (power_cycle)
@@ -85,38 +103,62 @@ int sd_init_retry(bool power_cycle)
 	switch (sd_mode)
 	{
 	case SD_INIT_FAIL: // Reset to max.
-		return 0;
+		return 1;
+
 	case SD_1BIT_HS25:
 		bus_width = SDMMC_BUS_WIDTH_1;
 		type = SDHCI_TIMING_SD_HS25;
 		break;
+
 	case SD_4BIT_HS25:
 		type = SDHCI_TIMING_SD_HS25;
 		break;
+
 	case SD_UHS_SDR82:
 		type = SDHCI_TIMING_UHS_SDR82;
 		break;
+
+	case SD_UHS_SDR104:
+		type = SDHCI_TIMING_UHS_SDR104;
+		break;
+
+#ifdef BDK_SDMMC_UHS_DDR200_SUPPORT
+	case SD_UHS_DDR208:
+		type = SDHCI_TIMING_UHS_DDR200;
+		break;
+#endif
+
 	default:
-		sd_mode = SD_UHS_SDR82;
+		sd_mode = SD_DEFAULT_SPEED;
+		break;
 	}
 
-	return sdmmc_storage_init_sd(&sd_storage, &sd_sdmmc, bus_width, type);
+	int res = sdmmc_storage_init_sd(&sd_storage, &sd_sdmmc, bus_width, type);
+	if (!res)
+	{
+		sd_init_done    = true;
+		insertion_event = true;
+	}
+	else
+		sd_init_done = false;
+
+	return res;
 }
 
-bool sd_initialize(bool power_cycle)
+int sd_initialize(bool power_cycle)
 {
 	if (power_cycle)
 		sdmmc_storage_end(&sd_storage);
 
-	int res = !sd_init_retry(false);
+	int res = sd_init_retry(false);
 
 	while (true)
 	{
 		if (!res)
-			return true;
+			return 0;
 		else if (!sdmmc_get_sd_inserted()) // SD Card is not inserted.
 		{
-			sd_mode = SD_UHS_SDR82;
+			sd_mode = SD_DEFAULT_SPEED;
 			break;
 		}
 		else
@@ -126,21 +168,24 @@ bool sd_initialize(bool power_cycle)
 			if (sd_mode == SD_INIT_FAIL)
 				break;
 			else
-				res = !sd_init_retry(true);
+				res = sd_init_retry(true);
 		}
 	}
 
 	sdmmc_storage_end(&sd_storage);
 
-	return false;
+	return 1;
 }
 
-bool sd_mount()
+int sd_mount()
 {
-	if (sd_mounted)
-		return true;
+	if (sd_init_done && sd_mounted)
+		return 0;
 
-	int res = !sd_initialize(false);
+	int res = 0;
+
+	if (!sd_init_done)
+		res = sd_initialize(false);
 
 	if (res)
 	{
@@ -153,11 +198,12 @@ bool sd_mount()
 	}
 	else
 	{
-		res = f_mount(&sd_fs, "", 1);
+		if (!sd_mounted)
+			res = f_mount(&sd_fs, "0:", 1); // Volume 0 is SD.
 		if (res == FR_OK)
 		{
 			sd_mounted = true;
-			return true;
+			return 0;
 		}
 		else
 		{
@@ -166,24 +212,34 @@ bool sd_mount()
 		}
 	}
 
-	return false;
+	return 1;
 }
 
-static void _sd_deinit()
+static void _sd_deinit(bool deinit)
 {
-	if (sd_mode == SD_INIT_FAIL)
-		sd_mode = SD_UHS_SDR82;
-
-	if (sd_mounted)
+	if (deinit)
 	{
-		f_mount(NULL, "", 1);
-		sdmmc_storage_end(&sd_storage);
-		sd_mounted = false;
+		insertion_event = false;
+		if (sd_mode == SD_INIT_FAIL)
+			sd_mode = SD_DEFAULT_SPEED;
 	}
+
+	if (sd_init_done)
+	{
+		if (sd_mounted)
+			f_unmount("0:"); // Volume 0 is SD.
+
+		if (deinit)
+		{
+			sdmmc_storage_end(&sd_storage);
+			sd_init_done = false;
+		}
+	}
+	sd_mounted = false;
 }
 
-void sd_unmount() { _sd_deinit(); }
-void sd_end()     { _sd_deinit(); }
+void sd_unmount() { _sd_deinit(false); }
+void sd_end()     { _sd_deinit(true); }
 
 bool sd_is_gpt()
 {
@@ -193,6 +249,9 @@ bool sd_is_gpt()
 void *sd_file_read(const char *path, u32 *fsize)
 {
 	FIL fp;
+	if (!sd_get_card_mounted())
+		return NULL;
+
 	if (f_open(&fp, path, FA_READ) != FR_OK)
 		return NULL;
 
@@ -215,10 +274,13 @@ void *sd_file_read(const char *path, u32 *fsize)
 	return buf;
 }
 
-int sd_save_to_file(void *buf, u32 size, const char *filename)
+int sd_save_to_file(const void *buf, u32 size, const char *filename)
 {
 	FIL fp;
 	u32 res = 0;
+	if (!sd_get_card_mounted())
+		return FR_DISK_ERR;
+
 	res = f_open(&fp, filename, FA_CREATE_ALWAYS | FA_WRITE);
 	if (res)
 	{

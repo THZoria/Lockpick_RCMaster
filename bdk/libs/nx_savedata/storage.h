@@ -162,10 +162,21 @@ static const storage_vt hierarchical_duplex_storage_vt = {
     save_hierarchical_duplex_storage_get_size_wrapper
 };
 
+/*
 static ALWAYS_INLINE bool is_range_valid(uint64_t offset, uint64_t size, uint64_t total_size) {
     return  offset >= 0 &&
             size >= 0 &&
             size <= total_size &&
+            offset <= total_size - size;
+}
+*/
+
+static ALWAYS_INLINE bool is_range_valid(uint64_t offset, uint64_t size, uint64_t total_size) {
+    if (total_size == UINT64_MAX) {
+        return offset <= UINT64_MAX - size;
+    }
+
+    return  size <= total_size &&
             offset <= total_size - size;
 }
 

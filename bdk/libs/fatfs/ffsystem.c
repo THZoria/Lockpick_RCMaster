@@ -1,14 +1,14 @@
 /*------------------------------------------------------------------------*/
 /* Sample Code of OS Dependent Functions for FatFs                        */
-/* (C) ChaN, 2018                                                          */
-/* (C) CTCaer, 2018                                                       */
+/* (C) ChaN, 2018                                                         */
+/* (C) CTCaer, 2018-2024                                                  */
 /*------------------------------------------------------------------------*/
 
+#include <mem/heap.h>
+#include <rtc/max77620-rtc.h>
+#include <storage/sdmmc.h>
 
 #include <libs/fatfs/ff.h>
-#include <mem/heap.h>
-
-
 
 #if FF_USE_LFN == 3	/* Dynamic memory allocation */
 
@@ -20,7 +20,8 @@ void* ff_memalloc (	/* Returns pointer to the allocated memory block (null if no
 	UINT msize		/* Number of bytes to allocate */
 )
 {
-	return malloc(msize);	/* Allocate a new memory block with POSIX API */
+	// Ensure size is aligned to SDMMC block size.
+	return malloc(ALIGN(msize, SDMMC_DAT_BLOCKSIZE));	/* Allocate a new memory block with POSIX API */
 }
 
 
@@ -37,3 +38,22 @@ void ff_memfree (
 
 #endif
 
+#if FF_FS_NORTC == 0
+
+/*------------------------------------------------------------------------*/
+/* Get real time clock                                                    */
+/*------------------------------------------------------------------------*/
+
+DWORD get_fattime (
+	void
+)
+{
+	rtc_time_t time;
+
+	max77620_rtc_get_time_adjusted(&time);
+
+	return (((DWORD)(time.year - 1980) << 25) | ((DWORD)time.month << 21) | ((DWORD)time.day << 16) |
+		((DWORD)time.hour << 11) | ((DWORD)time.min << 5) | (time.sec >> 1));
+}
+
+#endif

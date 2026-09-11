@@ -50,6 +50,8 @@
 #endif
 /* This option switches fast seek function. (0:Disable or 1:Enable) */
 
+#define FF_SIMPLE_GPT 1
+/* This option switches support for the first GPT partition. (0:Disable or 1:Enable) */
 
 #define FF_USE_EXPAND	0
 /* This option switches f_expand function. (0:Disable or 1:Enable) */

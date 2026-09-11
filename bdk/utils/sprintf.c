@@ -121,3 +121,66 @@ u32 s_printf(char *buffer, const char *fmt, ...) {
     va_end(ap);
     return count;
 }
+
+u32 s_vprintf(char *buffer, const char *fmt, va_list ap) {
+    int fill, fcnt;
+    u32 count = 0;
+
+    while(*fmt) {
+        if (*fmt == '%') {
+            fmt++;
+            fill = 0;
+            fcnt = 0;
+            if ((*fmt >= '0' && *fmt <= '9') || *fmt == ' ') {
+                fcnt = *fmt;
+                fmt++;
+                if (*fmt >= '0' && *fmt <= '9') {
+                    fill = fcnt;
+                    fcnt = *fmt - '0';
+                    fmt++;
+                } else {
+                    fill = ' ';
+                    fcnt -= '0';
+                }
+            }
+            switch (*fmt) {
+            case 'c':
+                _putc(buffer + count, va_arg(ap, u32));
+                count++;
+                break;
+            case 's':
+                count += _puts(buffer + count, va_arg(ap, char *));
+                break;
+            case 'd':
+                count += _putn(buffer + count, (u32)va_arg(ap, int), 10, fill, fcnt);
+                break;
+            case 'x':
+            case 'X':
+            case 'p':
+            case 'P':
+                count += _putn(buffer + count, va_arg(ap, u32), 16, fill, fcnt);
+                break;
+            case '%':
+                _putc(buffer + count, '%');
+                count++;
+                break;
+            case '\0':
+                goto out;
+            default:
+                _putc(buffer + count, '%');
+                count++;
+                _putc(buffer + count, *fmt);
+                count++;
+                break;
+            }
+        } else {
+            _putc(buffer + count, *fmt);
+            count++;
+        }
+        fmt++;
+    }
+
+out:
+    buffer[count] = 0;
+    return count;
+}
